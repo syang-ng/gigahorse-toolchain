@@ -44,6 +44,7 @@ node_modules/
 *.csv
 
 .temp
+temp*
 
 # decompilation results
 results.json
@@ -56,6 +57,7 @@ results.json
 
 # testing files
 .tests/**
+testcases/**
 
 # sqlite databases
 *.sqlite

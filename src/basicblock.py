@@ -80,7 +80,7 @@ class EVMOp:
     Represents a single EVM operation.
     """
 
-    def __init__(self, pc: int, opcode: opcodes.OpCode, value: Optional[int] = None):
+    def __init__(self, pc: int, opcode: opcodes.OpCode, value: Optional[int] = None, special_pc: Optional[int] = None):
         """
         Create a new EVMOp object from the given params which should correspond to
         disasm output.
@@ -120,6 +120,11 @@ class EVMOp:
 
         self.block = None
         """EVMBasicBlock object to which this line belongs"""
+
+        if special_pc is not None:
+            self.special_pc = special_pc
+        else:
+            self.special_pc = hex(pc)
 
     def __str__(self):
         if self.value is None:
