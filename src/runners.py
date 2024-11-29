@@ -190,7 +190,7 @@ def compile_datalog(spec: str, souffle_bin: str, cache_dir: str, reuse_datalog_b
     else:
         comp_start = time.time()
         log(f"Compiling {spec} to C++ program and executable")
-        compilation_command = [souffle_bin, '-M', souffle_macros, '-o', cache_path, spec, '-L', functor_path]
+        compilation_command = [souffle_bin, '-M', souffle_macros, '-o', cache_path, spec, '-L', functor_path, '-j', '8']
         process = subprocess.run(compilation_command, universal_newlines=True, env = souffle_env)
         assert not(process.returncode), f"Compilation for {spec} failed. Stopping."
         log(f"Compilation of {spec} successful after {time.time() - comp_start} seconds.")
@@ -338,7 +338,26 @@ class DecompilerFactGenerator(AbstractFactGenerator):
         disassemble_start = time.time()
         blocks = blockparse.EVMBytecodeParser(bytecode).parse()
         if self.fix_jumptable:
-            exporter.EVMBlockExporter(work_dir, blocks, False, bytecode, metadata, self.skip_sig_resolution).fix()
+            possible_jump_blocks = set()
+            prev_out_dir = out_dir.replace("_fixed", "")
+            jump_to_calldata = os.path.join(prev_out_dir, "JTA_JUMP_To_Calldata.csv")
+            jump_to_mload = os.path.join(prev_out_dir, "JTA_JUMP_To_MLOAD.csv")
+            jump_to_sload = os.path.join(prev_out_dir, "JTA_JUMP_To_SLOAD.csv")
+            jump_to_callvalue = os.path.join(prev_out_dir, "JTA_JUMP_To_CallValue.csv")
+
+            for jump_to in [jump_to_calldata, jump_to_mload, jump_to_sload, jump_to_callvalue]:
+                if os.path.exists(jump_to):
+                    with open(jump_to) as f:
+                        for line in f.readlines():
+                            if line.startswith("0x"):
+                                match = re.search(r'0x[0-9a-z]+?(?=0x|$)', line.strip())
+                                if match:
+                                    dst = int(match.group(0), 16)
+                                    possible_jump_blocks.add(dst)
+            possible_jump_blocks = sorted(list(possible_jump_blocks))
+            possible_jump_blocks = possible_jump_blocks[:1] # Limit to 1 for now
+
+            exporter.EVMBlockExporter(work_dir, blocks, False, bytecode, metadata, self.skip_sig_resolution).fix(possible_jump_blocks)
         else:
             exporter.EVMBlockExporter(work_dir, blocks, True, bytecode, metadata, self.skip_sig_resolution).export()
 

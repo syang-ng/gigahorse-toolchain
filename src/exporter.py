@@ -233,7 +233,7 @@ class EVMBlockExporter(FactExporter):
         self.generate_json('source-storage-layout.json', self.storage_layout)
 
 
-    def fix(self):
+    def fix(self, possible_jump_blocks: List[int]):
         """
         Print basic block info to tsv.
         """
@@ -296,22 +296,27 @@ class EVMBlockExporter(FactExporter):
         push_value = []
 
         jump_dests = []
-        possible_calldata_jumps = []
+        possible_dynamic_jumps = []
         for i, block in enumerate(self.blocks):
             if block.evm_ops[0].opcode.is_jumpdest():
                 jump_dests.append(block.evm_ops[0].pc)
-            if block.evm_ops[-1].opcode.is_direct_jump():
-                from_call_data = len(list(filter(lambda x: x.opcode.name == 'CALLDATALOAD', block.evm_ops[-6:-1]))) > 0
-                if from_call_data:
-                    possible_calldata_jumps.append((i, block.evm_ops[-1].pc))
-        
-        
-        for block_index, pc_value in possible_calldata_jumps:
+            for j in possible_jump_blocks:
+                if j >= block.evm_ops[0].pc and j <= block.evm_ops[-1].pc and block.evm_ops[-1].opcode.is_jump():
+                    possible_dynamic_jumps.append((i, block.evm_ops[0].pc))
+
+        for block_index, pc_value in possible_dynamic_jumps:
+            
             new_instructions = []
             pc = self.blocks[block_index].evm_ops[-1].pc
             special_pc = self.blocks[block_index].evm_ops[-1].special_pc
-            offset = 0x10000 * block_index
-            for i, jump_dest in enumerate(jump_dests):
+            offset = 0x10000 * (block_index+1)
+            first_pc = self.blocks[block_index].evm_ops[0].pc
+            if self.blocks[block_index].evm_ops[0].opcode.is_jumpdest():
+                target_jump_dests = [jump_dest for jump_dest in jump_dests]
+            else:
+                target_jump_dests = jump_dests
+
+            for i, jump_dest in enumerate(target_jump_dests):
                 new_instructions += [
                     # basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'.{special_pc}.{hex(9*i)}'),
                     # basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'.{special_pc}.{hex(9*i+1)}'),
@@ -325,11 +330,7 @@ class EVMBlockExporter(FactExporter):
                     basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(pc+offset+9*i+8)}'),
                 ]
             new_instructions.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(pc+offset+9*i+9)}'))
-            # new_instructions.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'.{special_pc}.{hex(9*i+9)}'))
             self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + new_instructions
-            # if block_index > :
-            break
-        # import IPython; IPython.embed(color='neutral')
 
         instructions = []
         instructions_order = []
@@ -341,15 +342,11 @@ class EVMBlockExporter(FactExporter):
                 instructions.append((op.special_pc, op.opcode.name))
                 if op.opcode.is_push():
                     push_value.append((op.special_pc, hex(op.value)))
-                    # push_value.append((op.special_pc, hex(op.value)))
-
 
         dasm = get_disassembly(instructions, dict(push_value))
         with open(self.get_out_file_path('contract_patch.dasm'), 'w') as f:
             f.write(dasm)
 
-        
-        # instructions_order = list(map(hex, sorted(instructions_order)))
         self.generate('Statement_Next.facts', zip(instructions_order, instructions_order[1:]))
 
         self.generate('Statement_Opcode.facts', instructions)

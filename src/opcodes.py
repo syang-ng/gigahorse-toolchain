@@ -123,9 +123,13 @@ class OpCode:
                 or self.is_invalid()
     
     def is_jumpdest(self) -> bool:
-        """Predicate: opcode causes the EVM to jump."""
+        """Predicate: opcode is the dest of jump."""
         return self.code == JUMPDEST.code
     
+    def is_jump(self) -> bool:
+        """Predicate: opcode causes the EVM to jump."""
+        return self.code == JUMP.code or self.code == JUMPI.code
+
     def is_direct_jump(self) -> bool:
         return self.code == JUMP.code
 
