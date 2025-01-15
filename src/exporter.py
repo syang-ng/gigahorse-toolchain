@@ -304,33 +304,66 @@ class EVMBlockExporter(FactExporter):
                 if j >= block.evm_ops[0].pc and j <= block.evm_ops[-1].pc and block.evm_ops[-1].opcode.is_jump():
                     possible_dynamic_jumps.append((i, block.evm_ops[0].pc))
 
+        pc = max([block.evm_ops[-1].pc for block in self.blocks]) + 1
+
+        # new jump table
+        jump_table_to_function = [
+            basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPDEST'), None, f'{hex(0xf000)}'),
+        ]
+        for i, jump_dest in enumerate(jump_dests):
+            jump_table_to_function += [
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(0xf001+9*i)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(0xf001+9*i+1)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(0xf001+9*i+4)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(0xf001+9*i+5)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(0xf001+9*i+8)}'),
+            ]
+            if i < len(jump_dests) - 1:
+                new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
+                self.blocks.append(new_block)
+        jump_table_to_function.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(0xff01+9*i+9)}'))
+        new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
+        self.blocks.append(new_block)
+
         for block_index, pc_value in possible_dynamic_jumps:
-            
-            new_instructions = []
             pc = self.blocks[block_index].evm_ops[-1].pc
             special_pc = self.blocks[block_index].evm_ops[-1].special_pc
             offset = 0x10000 * (block_index+1)
-            first_pc = self.blocks[block_index].evm_ops[0].pc
-            if self.blocks[block_index].evm_ops[0].opcode.is_jumpdest():
-                target_jump_dests = [jump_dest for jump_dest in jump_dests]
-            else:
-                target_jump_dests = jump_dests
-
-            for i, jump_dest in enumerate(target_jump_dests):
-                new_instructions += [
-                    # basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'.{special_pc}.{hex(9*i)}'),
-                    # basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'.{special_pc}.{hex(9*i+1)}'),
-                    # basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'.{special_pc}.{hex(9*i+4)}'),
-                    # basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'.{special_pc}.{hex(9*i+5)}'),
-                    # basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'.{special_pc}.{hex(9*i+8)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(pc+offset+9*i)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+1)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(pc+offset+9*i+4)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+5)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(pc+offset+9*i+8)}'),
+            if self.blocks[block_index].evm_ops[-1].opcode.is_direct_jump():
+                self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + [
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xf000, f'{hex(offset)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMP'), None, f'{hex(offset+3)}'),
                 ]
-            new_instructions.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(pc+offset+9*i+9)}'))
-            self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + new_instructions
+            else:
+                self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + [
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('SWAP1'), None, f'{hex(offset)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xf000, f'{hex(offset+1)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(offset+4)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('POP'), None, f'{hex(offset+4)}')
+                ]
+
+        # for block_index, pc_value in possible_dynamic_jumps:
+            
+        #     new_instructions = []
+        #     pc = self.blocks[block_index].evm_ops[-1].pc
+        #     special_pc = self.blocks[block_index].evm_ops[-1].special_pc
+        #     offset = 0x10000 * (block_index+1)
+        #     first_pc = self.blocks[block_index].evm_ops[0].pc
+        #     if self.blocks[block_index].evm_ops[0].opcode.is_jumpdest():
+        #         target_jump_dests = [jump_dest for jump_dest in jump_dests]
+        #     else:
+        #         target_jump_dests = jump_dests
+
+        #     for i, jump_dest in enumerate(target_jump_dests):
+        #         new_instructions += [
+        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(pc+offset+9*i)}'),
+        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+1)}'),
+        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(pc+offset+9*i+4)}'),
+        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+5)}'),
+        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(pc+offset+9*i+8)}'),
+        #         ]
+        #     new_instructions.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(pc+offset+9*i+9)}'))
+        #     self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + new_instructions
 
         instructions = []
         instructions_order = []
@@ -361,4 +394,3 @@ class EVMBlockExporter(FactExporter):
         self.generate_json('source-abi.json', self.abi)
         self.generate_json('source-storage-layout.json', self.storage_layout)
         print("Done. Exported to", self.output_dir)
-

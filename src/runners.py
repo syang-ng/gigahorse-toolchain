@@ -354,8 +354,9 @@ class DecompilerFactGenerator(AbstractFactGenerator):
                                 if match:
                                     dst = int(match.group(0), 16)
                                     possible_jump_blocks.add(dst)
+
             possible_jump_blocks = sorted(list(possible_jump_blocks))
-            possible_jump_blocks = possible_jump_blocks[:1] # Limit to 1 for now
+            # possible_jump_blocks = possible_jump_blocks[:1] # Limit to 1 for now
 
             exporter.EVMBlockExporter(work_dir, blocks, False, bytecode, metadata, self.skip_sig_resolution).fix(possible_jump_blocks)
         else:
