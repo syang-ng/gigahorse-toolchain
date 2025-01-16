@@ -321,7 +321,9 @@ class EVMBlockExporter(FactExporter):
             if i < len(jump_dests) - 1:
                 new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
                 self.blocks.append(new_block)
-        jump_table_to_function.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(0xff01+9*i+9)}'))
+                jump_table_to_function = []
+
+        jump_table_to_function.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(0xf001+9*i+9)}'))
         new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
         self.blocks.append(new_block)
 
