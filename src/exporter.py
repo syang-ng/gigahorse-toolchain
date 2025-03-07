@@ -306,67 +306,58 @@ class EVMBlockExporter(FactExporter):
 
         pc = max([block.evm_ops[-1].pc for block in self.blocks]) + 1
 
-        # new jump table
+        # intermediate jump table
+        intermediate_start = 0xe000 + 0x1000 * len(jump_dests) // 256
+        jump_to_clean_block = {}
+        for i, jump_dest in enumerate(jump_dests):
+            clean_block_dest = intermediate_start + 6*i
+            jump_table_to_function = [
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPDEST'), None, f'{hex(clean_block_dest)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('POP'), None, f'{hex(clean_block_dest+1)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(clean_block_dest+2)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMP'), None, f'{hex(clean_block_dest+5)}'),
+            ]
+            jump_to_clean_block[jump_dest] = clean_block_dest
+            new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
+            self.blocks.append(new_block)
+
         jump_table_to_function = [
-            basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPDEST'), None, f'{hex(0xf000)}'),
+            basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPDEST'), None, f'{hex(0xe000)}'),
         ]
         for i, jump_dest in enumerate(jump_dests):
             jump_table_to_function += [
-                basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(0xf001+9*i)}'),
-                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(0xf001+9*i+1)}'),
-                basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(0xf001+9*i+4)}'),
-                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(0xf001+9*i+5)}'),
-                basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(0xf001+9*i+8)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(0xe001+9*i)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(0xe001+9*i+1)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(0xe001+9*i+4)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_to_clean_block[jump_dest], f'{hex(0xe001+9*i+5)}'),
+                basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(0xe001+9*i+8)}'),
             ]
             if i < len(jump_dests) - 1:
                 new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
                 self.blocks.append(new_block)
                 jump_table_to_function = []
 
-        jump_table_to_function.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(0xf001+9*i+9)}'))
+        jump_table_to_function.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(0xe001+9*i+9)}'))
         new_block = basicblock.EVMBasicBlock(pc, pc, jump_table_to_function)
         self.blocks.append(new_block)
 
+        fake_block_index = 1
         for block_index, pc_value in possible_dynamic_jumps:
             pc = self.blocks[block_index].evm_ops[-1].pc
-            special_pc = self.blocks[block_index].evm_ops[-1].special_pc
-            offset = 0x10000 * (block_index+1)
+            offset = 0x10000 * fake_block_index + 1
             if self.blocks[block_index].evm_ops[-1].opcode.is_direct_jump():
                 self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + [
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xf000, f'{hex(offset)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xe000, f'{hex(offset)}'),
                     basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMP'), None, f'{hex(offset+3)}'),
                 ]
             else:
                 self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + [
                     basicblock.EVMOp(pc, opcodes.opcode_by_name('SWAP1'), None, f'{hex(offset)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xf000, f'{hex(offset+1)}'),
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), 0xe000, f'{hex(offset+1)}'),
                     basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(offset+4)}'),
-                    basicblock.EVMOp(pc, opcodes.opcode_by_name('POP'), None, f'{hex(offset+4)}')
+                    basicblock.EVMOp(pc, opcodes.opcode_by_name('POP'), None, f'{hex(offset+5)}')
                 ]
-
-        # for block_index, pc_value in possible_dynamic_jumps:
-            
-        #     new_instructions = []
-        #     pc = self.blocks[block_index].evm_ops[-1].pc
-        #     special_pc = self.blocks[block_index].evm_ops[-1].special_pc
-        #     offset = 0x10000 * (block_index+1)
-        #     first_pc = self.blocks[block_index].evm_ops[0].pc
-        #     if self.blocks[block_index].evm_ops[0].opcode.is_jumpdest():
-        #         target_jump_dests = [jump_dest for jump_dest in jump_dests]
-        #     else:
-        #         target_jump_dests = jump_dests
-
-        #     for i, jump_dest in enumerate(target_jump_dests):
-        #         new_instructions += [
-        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('DUP1'), None, f'{hex(pc+offset+9*i)}'),
-        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+1)}'),
-        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('EQ'), None, f'{hex(pc+offset+9*i+4)}'),
-        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('PUSH2'), jump_dest, f'{hex(pc+offset+9*i+5)}'),
-        #             basicblock.EVMOp(pc, opcodes.opcode_by_name('JUMPI'), None, f'{hex(pc+offset+9*i+8)}'),
-        #         ]
-        #     new_instructions.append(basicblock.EVMOp(pc, opcodes.opcode_by_name('REVERT'), None, f'{hex(pc+offset+9*i+9)}'))
-        #     self.blocks[block_index].evm_ops = self.blocks[block_index].evm_ops[:-1:] + new_instructions
-
+            fake_block_index += 1
         instructions = []
         instructions_order = []
         push_value = []
